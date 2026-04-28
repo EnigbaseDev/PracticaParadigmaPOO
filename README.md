@@ -1,6 +1,6 @@
 # PracticaParadigmaPOO
 
-Practica III - ST0244 Programming Languages and Computing Paradigms.
+Practica II - ST0244 Programming Languages and Computing Paradigms.
 
 Aplicacion con interfaz grafica para:
 1. Generar derivacion por la izquierda o por la derecha.
@@ -15,8 +15,8 @@ Aplicacion con interfaz grafica para:
 
 ## Integrantes
 
-- Nombre completo 1: PENDIENTE
-- Nombre completo 2 (opcional): PENDIENTE
+- Nombre completo 1: CARLOS MARIO MONSALVE TANGARIFE
+- Nombre completo 2: CRISTIAN ALEJANDRO ADRADA ORDOÑEZ
 
 ## Ejecucion
 
