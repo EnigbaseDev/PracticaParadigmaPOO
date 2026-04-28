@@ -43,6 +43,10 @@ F -> ( E ) | id
 id + id * id
 ```
 
+Tambien puedes escribir variables y numeros (ej. `X + 5 * Y`).
+Si tu gramatica usa el terminal `id` (como en el ejemplo), el programa tratara
+cualquier identificador o numero como `id` al momento de derivar.
+
 3. Elegir tipo de derivacion (izquierda o derecha).
 4. Presionar "Generar".
 5. Revisar las pestanas:

@@ -33,11 +33,39 @@ class Grammar:
 		self.rules = rules
 		self.start_symbol = start_symbol
 		self.nonterminals = set(rules.keys())
+		self.terminals = {
+			sym
+			for prods in rules.values()
+			for prod in prods
+			for sym in prod
+			if sym and sym not in self.nonterminals
+		}
 
 	@staticmethod
 	def tokenize(text: str) -> List[str]:
 		# Tokens: identificadores, números o cualquier símbolo individual.
 		return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|\d+|\S", text)
+
+	def tokenize_target(self, text: str) -> List[str]:
+		"""Tokeniza una expresión objetivo.
+
+		Si la gramática usa el terminal `id`, normaliza cualquier identificador o número
+		(no conocido por la gramática) a `id`. Esto permite entradas como:
+		`X + 5 * Y` con la gramática de ejemplo `F -> ( E ) | id`.
+		"""
+		tokens = Grammar.tokenize(text)
+		if "id" not in self.terminals:
+			return tokens
+
+		out: List[str] = []
+		for tok in tokens:
+			if tok in self.terminals or self.is_nonterminal(tok):
+				out.append(tok)
+			elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*|\d+", tok):
+				out.append("id")
+			else:
+				out.append(tok)
+		return out
 
 	@staticmethod
 	def from_text(text: str) -> "Grammar":
@@ -373,9 +401,6 @@ class App(tk.Tk):
 			**field_border,
 		)
 		self.expr_entry.grid(row=0, column=0, sticky="ew")
-		tk.Label(expr_frame, text="Ej: id+id*id", bg=controls_bg, fg=controls_muted).grid(
-			row=1, column=0, sticky="w", pady=(2, 0)
-		)
 
 		self.mode = tk.StringVar(value="left")
 		mframe = tk.Frame(controls, bg=controls_bg)
@@ -488,7 +513,7 @@ class App(tk.Tk):
 			]
 		)
 		self.grammar_txt.insert("1.0", ex)
-		self.expr_entry.insert(0, "id+id*id")
+		self.expr_entry.delete(0, "end")
 
 	def _generate(self) -> None:
 		try:
@@ -500,7 +525,7 @@ class App(tk.Tk):
 				raise ValueError("Ingresa la expresion objetivo")
 
 			g = Grammar.from_text(grammar_text)
-			target = Grammar.tokenize(expr_text)
+			target = g.tokenize_target(expr_text)
 			left = self.mode.get() == "left"
 			max_steps = int(self.max_steps_var.get())
 
