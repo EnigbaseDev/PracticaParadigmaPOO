@@ -15,8 +15,8 @@ Aplicacion con interfaz grafica para:
 
 ## Integrantes
 
-- Nombre completo 1: CARLOS MARIO MONSALVE TANGARIFE
-- Nombre completo 2: CRISTIAN ALEJANDRO ADRADA ORDOÑEZ
+- CARLOS MARIO MONSALVE TANGARIFE
+- CRISTIAN ALEJANDRO ADRADA ORDOÑEZ
 
 ## Ejecucion
 
