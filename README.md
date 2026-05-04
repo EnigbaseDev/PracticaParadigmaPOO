@@ -24,7 +24,7 @@ Aplicacion con interfaz grafica para:
 2. Ejecutar:
 
 ```bash
-python3 main.py
+python main.py
 ```
 
 ## Uso
@@ -37,7 +37,7 @@ T -> T * F | F
 F -> ( E ) | id
 ```
 
-2. Escribir la expresion objetivo separando tokens por espacio. Ejemplo:
+2. Escribir la expresion objetivo (no es obligatorio separar tokens por espacio). Ejemplo:
 
 ```text
 id + id * id
@@ -58,4 +58,5 @@ cualquier identificador o numero como `id` al momento de derivar.
 
 - El simbolo inicial de la gramatica es el no terminal de la primera regla.
 - Se admite epsilon como: ε, epsilon, lambda o alternativa vacia.
+- Recomendado: Python 3.9+.
 
