@@ -27,6 +27,12 @@ Aplicacion con interfaz grafica para:
 python main.py
 ```
 
+## Estructura (organizacion del codigo)
+
+- main.py: punto de entrada (solo lanza la app)
+- cfg_core.py: lógica de gramática/derivación/árbol/AST (sin GUI)
+- ui_app.py: interfaz gráfica Tkinter (usa cfg_core.py)
+
 ## Uso
 
 1. Escribir la gramatica en formato tipo BNF, una regla por linea:
