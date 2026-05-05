@@ -270,14 +270,14 @@ class App(tk.Tk):
 	def _load_example(self) -> None:
 		ex = "".join(
 			[
-				"E -> E + T | T\n",
-				"T -> T * F | F\n",
-				"F -> ( E ) | id\n",
+				"E -> E + T | E - T | T\n",
+				"T -> T * F | T / F | F\n",
+				"F -> ( E ) | id | num\n",
 			]
 		)
 		self.grammar_txt.insert("1.0", ex)
 		self.expr_entry.delete(0, "end")
-		self.expr_entry.insert(0, "id + id * id")
+		self.expr_entry.insert(0, "id - id / id")
 
 	def _generate(self) -> None:
 		try:
@@ -291,7 +291,7 @@ class App(tk.Tk):
 			g = Grammar.from_text(grammar_text)
 			target = g.tokenize_target(expr_text)
 			left = self.mode.get() == "left"
-			max_steps = 25
+			max_steps = max(25, min(80, len(target) * 6))
 
 			engine = DerivationEngine(g)
 			result = engine.derive(target=target, left=left, max_steps=max_steps)
@@ -314,6 +314,7 @@ class App(tk.Tk):
 		out: List[str] = []
 
 		from cfg_core import is_ident_or_number, is_identifier, is_number
+		id_matches_numbers = ("num" not in grammar.terminals) and ("number" not in grammar.terminals)
 
 		for sym in form:
 			if grammar.is_nonterminal(sym):
@@ -322,12 +323,12 @@ class App(tk.Tk):
 			if sym in {"ε", "epsilon", "lambda"}:
 				out.append("ε")
 				continue
-			if sym in {"id", "identifier", "number"}:
+			if sym in {"id", "identifier", "number", "num"}:
 				pred = (
 					is_identifier
-					if sym == "identifier"
+					if sym in {"identifier", "id"} and not (sym == "id" and id_matches_numbers)
 					else is_number
-					if sym == "number"
+					if sym in {"number", "num"}
 					else is_ident_or_number
 				)
 				while i < len(target_tokens) and not pred(target_tokens[i]):

@@ -3,7 +3,7 @@ from __future__ import annotations
 """Núcleo CFG: tokenización, derivación, árbol de derivación y AST.
 
 - No depende de Tkinter (solo lógica).
-- Soporta comodines terminales: `id`, `identifier`, `number`.
+- Soporta comodines terminales: `id`, `identifier`, `number`, `num`.
 """
 
 from dataclasses import dataclass, field
@@ -27,13 +27,18 @@ def is_ident_or_number(tok: str) -> bool:
 	return is_identifier(tok) or is_number(tok)
 
 
-def wildcard_matches(grammar_sym: str, target_tok: str) -> bool:
-	"""Soporta comodines comunes: id, identifier, number."""
+def wildcard_matches(grammar_sym: str, target_tok: str, *, id_matches_numbers: bool) -> bool:
+	"""Soporta comodines comunes: id, identifier, number/num.
+
+	`id_matches_numbers` permite mantener compatibilidad:
+	- Si la gramática NO tiene `num`/`number`, entonces `id` puede matchear identificadores y números.
+	- Si la gramática SI tiene `num`/`number`, entonces `id` matchea solo identificadores.
+	"""
 	if grammar_sym == "id":
-		return is_ident_or_number(target_tok)
-	if grammar_sym == "identifier":
+		return is_ident_or_number(target_tok) if id_matches_numbers else is_identifier(target_tok)
+	if grammar_sym in {"identifier"}:
 		return is_identifier(target_tok)
-	if grammar_sym == "number":
+	if grammar_sym in {"number", "num"}:
 		return is_number(target_tok)
 	return False
 
@@ -131,6 +136,24 @@ class DerivationEngine:
 
 	def derive(self, target: List[str], left: bool, max_steps: int) -> DerivationResult:
 		"""Intenta derivar `target` en <= `max_steps` expansiones."""
+		# Validación temprana: evita explorar si el objetivo contiene tokens que
+		# la gramática nunca podría producir (p.ej. '=' si no está en reglas).
+		id_matches_numbers = ("num" not in self.g.terminals) and ("number" not in self.g.terminals)
+		wildcards = {"id", "identifier", "number", "num"} & self.g.terminals
+		unsupported: List[str] = []
+		for tok in target:
+			if tok in self.g.terminals:
+				continue
+			if any(wildcard_matches(w, tok, id_matches_numbers=id_matches_numbers) for w in wildcards):
+				continue
+			unsupported.append(tok)
+		if unsupported:
+			uniq = ", ".join(sorted(set(unsupported)))
+			raise ValueError(
+				"La expresion objetivo tiene tokens que tu gramatica no produce: "
+				f"{uniq}. Agrega esos terminales a la gramatica (por ejemplo '=')."
+			)
+
 		start = (self.g.start_symbol,)
 		target_t = tuple(target)
 
@@ -183,7 +206,10 @@ class DerivationEngine:
 	def _term_matches(self, grammar_sym: str, target_tok: str) -> bool:
 		if grammar_sym == target_tok:
 			return True
-		return wildcard_matches(grammar_sym, target_tok)
+		# Compatibilidad: si la gramática no distingue números (`num`/`number`),
+		# tratamos números como `id`.
+		id_matches_numbers = ("num" not in self.g.terminals) and ("number" not in self.g.terminals)
+		return wildcard_matches(grammar_sym, target_tok, id_matches_numbers=id_matches_numbers)
 
 	def _matches(self, form: Tuple[str, ...], target: Tuple[str, ...]) -> bool:
 		if len(form) != len(target):
@@ -232,18 +258,19 @@ class TreeBuilder:
 	def apply_lexemes(self, root: Node, target_tokens: List[str]) -> None:
 		"""Reemplaza hojas id/identifier/number por lexemas reales."""
 		i = 0
+		id_matches_numbers = ("num" not in self.g.terminals) and ("number" not in self.g.terminals)
 
 		def walk(n: Node) -> None:
 			nonlocal i
 			if not n.children:
 				if n.symbol in {"ε", "epsilon", "lambda"}:
 					return
-				if n.symbol in {"id", "identifier", "number"}:
+				if n.symbol in {"id", "identifier", "number", "num"}:
 					pred = (
 						is_identifier
-						if n.symbol == "identifier"
+						if n.symbol in {"identifier", "id"} and not (n.symbol == "id" and id_matches_numbers)
 						else is_number
-						if n.symbol == "number"
+						if n.symbol in {"number", "num"}
 						else is_ident_or_number
 					)
 					while i < len(target_tokens) and not pred(target_tokens[i]):

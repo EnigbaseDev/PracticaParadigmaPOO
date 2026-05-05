@@ -38,20 +38,23 @@ python main.py
 1. Escribir la gramatica en formato tipo BNF, una regla por linea:
 
 ```text
-E -> E + T | T
-T -> T * F | F
-F -> ( E ) | id
+E -> E + T | E - T | T
+T -> T * F | T / F | F
+F -> ( E ) | id | num
 ```
 
 2. Escribir la expresion objetivo (no es obligatorio separar tokens por espacio). Ejemplo:
 
 ```text
-id + id * id
+id - id / id
 ```
 
 Tambien puedes escribir variables y numeros (ej. `X + 5 * Y`).
-Si tu gramatica usa el terminal `id` (como en el ejemplo), el programa tratara
-cualquier identificador o numero como `id` al momento de derivar.
+
+- Si tu gramatica usa `id` y NO define `num`/`number`, el programa permite que `id`
+	matchee identificadores y numeros (modo compatible).
+- Si tu gramatica define `num` (o `number`), entonces `id` matchea solo identificadores
+	y `num`/`number` matchea solo numeros.
 
 3. Elegir tipo de derivacion (izquierda o derecha).
 4. Presionar "Generar".
