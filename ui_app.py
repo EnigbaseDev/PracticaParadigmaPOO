@@ -31,7 +31,7 @@ class GraphicsTree(QGraphicsView):
         if not root:
             return
 
-        # 1. Unificamos ancho y alto para garantizar un círculo perfecto
+        # Unificamos ancho y alto para garantizar un círculo,
         node_size = 40
         x_gap = 18
         y_gap = 56
@@ -77,7 +77,7 @@ class GraphicsTree(QGraphicsView):
             xu, d = pos[id(n)]
             x, y = to_xy(xu, d)
 
-            # 2. Dibujamos el círculo usando node_size en ambos ejes
+            # Dibujamos el círculo usando node_size en ambos ejes
             self.scene.addEllipse(x, y, node_size, node_size, pen, brush)
 
             label = n.symbol
@@ -97,7 +97,7 @@ class GraphicsTree(QGraphicsView):
             for c in n.children:
                 draw_nodes(c)
 
-        # 3. Dibujamos las líneas primero, y los círculos blancos encima
+        # Dibujamos las líneas primero, y los círculos blancos encima
         draw_edges(root)
         draw_nodes(root)
 
@@ -110,7 +110,7 @@ class AppWindow(QMainWindow):
         self.setWindowTitle("CFG: Derivacion, Arbol de Derivacion y AST (PyQt6)")
         self.resize(1200, 780)
 
-        # Colores principales (Limpios para que el sistema dibuje el botón y selectores nativos)
+        # Colores principales
         self.setStyleSheet("""
                     QMainWindow { 
                         background-color: #f0f0f0; 
@@ -124,7 +124,6 @@ class AppWindow(QMainWindow):
                         border: 1px solid #cccccc; 
                         border-radius: 2px; 
                     }
-                    /* Le damos al botón explícitamente su diseño clásico rectangular */
                     QPushButton {
                         background-color: #e1e1e1;
                         color: #000000;
@@ -151,7 +150,7 @@ class AppWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # ---- Controles Superiores ----
+        # Controles Superiores
         controls_layout = QHBoxLayout()
 
         # Columna 1: Gramática
@@ -190,7 +189,7 @@ class AppWindow(QMainWindow):
 
         main_layout.addLayout(controls_layout)
 
-        # ---- Selectores de Vista ----
+        # Selectores de Vista
         views_layout = QHBoxLayout()
         self.rb_derivation = QRadioButton("Derivacion")
         self.rb_tree = QRadioButton("Arbol de Derivacion")
@@ -209,7 +208,7 @@ class AppWindow(QMainWindow):
         views_layout.addStretch()
         main_layout.addLayout(views_layout)
 
-        # ---- Salidas (Stack) ----
+        # Salidas (Stack)
         self.stack = QStackedWidget()
 
         self.derivation_out = QTextEdit()
@@ -225,7 +224,7 @@ class AppWindow(QMainWindow):
 
         main_layout.addWidget(self.stack, 1)
 
-        # ---- Botón de Generar y Estado (MOVIDO AL FINAL) ----
+        # Botón de Generar y Estado
         btn_layout = QHBoxLayout()
         self.status = QLabel("Listo")
         btn_layout.addWidget(self.status)

@@ -119,13 +119,13 @@ class DerivationEngine:
 
         best_tree = trees[0]
 
-        # 1. Extraemos las reglas genéricas (con 'num', 'id') ANTES de modificar el árbol
+        # Extraemos las reglas genéricas (con 'num', 'id') ANTES de modificar el árbol
         if left:
             generic_prods = self._get_leftmost_productions(best_tree)
         else:
             generic_prods = self._get_rightmost_productions(best_tree)
 
-        # 2. Inyectamos los lexemas reales (29, 13, c) en las hojas
+        # Inyectamos los lexemas reales en las hojas
         leaf_positions = best_tree.treepositions('leaves')
         target_idx = 0
         for pos in leaf_positions:
@@ -133,7 +133,7 @@ class DerivationEngine:
                 best_tree[pos] = f"'{target[target_idx]}'"
                 target_idx += 1
 
-        # 3. Extraemos las reglas literales DESPUÉS de modificar el árbol para armar la cadena visual
+        # Extraemos las reglas literales después de modificar el árbol para armar la cadena visual
         if left:
             literal_prods = self._get_leftmost_productions(best_tree)
         else:
