@@ -1,321 +1,244 @@
 from __future__ import annotations
-
-"""Núcleo CFG: tokenización, derivación, árbol de derivación y AST.
-
-- No depende de Tkinter (solo lógica).
-- Soporta comodines terminales: `id`, `identifier`, `number`, `num`.
-"""
-
 from dataclasses import dataclass, field
+from typing import List, Tuple, Optional
 import re
-from typing import Dict, List, Optional, Tuple
 
+import nltk
+from nltk import CFG, ChartParser, Tree, Production
 
-_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_NUM_RE = re.compile(r"^\d+$")
-
-
-def is_identifier(tok: str) -> bool:
-	return _IDENT_RE.fullmatch(tok) is not None
-
-
-def is_number(tok: str) -> bool:
-	return _NUM_RE.fullmatch(tok) is not None
-
-
-def is_ident_or_number(tok: str) -> bool:
-	return is_identifier(tok) or is_number(tok)
-
-
-def wildcard_matches(grammar_sym: str, target_tok: str, *, id_matches_numbers: bool) -> bool:
-	"""Soporta comodines comunes: id, identifier, number/num.
-
-	`id_matches_numbers` permite mantener compatibilidad:
-	- Si la gramática NO tiene `num`/`number`, entonces `id` puede matchear identificadores y números.
-	- Si la gramática SI tiene `num`/`number`, entonces `id` matchea solo identificadores.
-	"""
-	if grammar_sym == "id":
-		return is_ident_or_number(target_tok) if id_matches_numbers else is_identifier(target_tok)
-	if grammar_sym in {"identifier"}:
-		return is_identifier(target_tok)
-	if grammar_sym in {"number", "num"}:
-		return is_number(target_tok)
-	return False
+# Aseguramos que el tokenizador de NLTK esté disponible silenciosamente
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt', quiet=True)
 
 
 @dataclass(frozen=True)
 class DerivationStep:
-	"""Un paso de derivación: expandir un no terminal en una posición."""
-
-	nonterminal: str
-	production: Tuple[str, ...]
-	index: int
-	form: Tuple[str, ...]
+    nonterminal: str
+    production: Tuple[str, ...]
+    index: int
+    form: Tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class DerivationResult:
-	"""Resultado de derivación: símbolo inicial + lista de pasos aplicados."""
-
-	start: Tuple[str, ...]
-	steps: List[DerivationStep]
+    start: Tuple[str, ...]
+    steps: List[DerivationStep]
+    nltk_tree: Optional[Tree] = None
 
 
 @dataclass
 class Node:
-	"""Nodo para representar árbol (derivación o AST)."""
-
-	symbol: str
-	children: List["Node"] = field(default_factory=list)
+    symbol: str
+    children: List["Node"] = field(default_factory=list)
 
 
 class Grammar:
-	"""Representa una gramática libre de contexto (CFG)."""
+    def __init__(self, raw_text: str):
+        self.raw_text = raw_text
+        self.start_symbol = ""
+        self.terminals = set()
+        self.nonterminals = set()
 
-	def __init__(self, rules: Dict[str, List[Tuple[str, ...]]], start_symbol: str) -> None:
-		self.rules = rules
-		self.start_symbol = start_symbol
-		self.nonterminals = set(rules.keys())
-		self.terminals = {
-			sym
-			for prods in rules.values()
-			for prod in prods
-			for sym in prod
-			if sym and sym not in self.nonterminals
-		}
+        lines = raw_text.splitlines()
+        for line in lines:
+            if "->" in line:
+                lhs = line.split("->")[0].strip()
+                self.nonterminals.add(lhs)
+                if not self.start_symbol:
+                    self.start_symbol = lhs
 
-	@staticmethod
-	def tokenize(text: str) -> List[str]:
-		"""Convierte un string a tokens: identificadores, números o símbolos individuales."""
-		return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|\d+|\S", text)
+    @staticmethod
+    def tokenize_target(text: str) -> List[str]:
+        return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|\d+|\S", text)
 
-	def tokenize_target(self, text: str) -> List[str]:
-		"""Tokeniza una expresión objetivo."""
-		return Grammar.tokenize(text)
+    @staticmethod
+    def from_text(text: str) -> "Grammar":
+        return Grammar(text)
 
-	@staticmethod
-	def from_text(text: str) -> "Grammar":
-		"""Construye la gramática desde un texto con reglas `A -> ... | ...`."""
-		rules: Dict[str, List[Tuple[str, ...]]] = {}
-		start: Optional[str] = None
+    def is_nonterminal(self, sym: str) -> bool:
+        return sym in self.nonterminals
 
-		for raw_line in text.splitlines():
-			line = raw_line.strip()
-			if not line or line.startswith("#"):
-				continue
-			if "->" not in line:
-				raise ValueError(f"Linea invalida: '{line}'. Usa A -> B C | d")
-			lhs, rhs = line.split("->", 1)
-			lhs = lhs.strip()
-			rhs = rhs.strip()
-			if not lhs:
-				raise ValueError(f"No terminal vacio en: '{line}'")
-			if start is None:
-				start = lhs
-			alts = [alt.strip() for alt in rhs.split("|")]
-			rules.setdefault(lhs, [])
-			for alt in alts:
-				if alt in {"", "ε", "epsilon", "lambda"}:
-					rules[lhs].append(tuple())
-				else:
-					rules[lhs].append(tuple(Grammar.tokenize(alt)))
-
-		if not rules or start is None:
-			raise ValueError("No se detectaron reglas validas.")
-		return Grammar(rules, start)
-
-	def is_nonterminal(self, sym: str) -> bool:
-		return sym in self.nonterminals
+    def get_nltk_string(self) -> str:
+        """Convierte el texto de la UI al formato estricto de NLTK (Terminales en comillas)."""
+        nltk_lines = []
+        for line in self.raw_text.splitlines():
+            if "->" not in line: continue
+            lhs, rhs = line.split("->", 1)
+            alts = rhs.split("|")
+            new_alts = []
+            for alt in alts:
+                tokens = [t.strip() for t in Grammar.tokenize_target(alt)]
+                new_tokens = []
+                for t in tokens:
+                    if t in self.nonterminals:
+                        new_tokens.append(t)
+                    elif t in {"ε", "epsilon", "lambda"}:
+                        new_tokens.append("''")
+                    else:
+                        new_tokens.append(f"'{t}'")
+                new_alts.append(" ".join(new_tokens) if new_tokens else "''")
+            nltk_lines.append(f"{lhs.strip()} -> {' | '.join(new_alts)}")
+        return "\n".join(nltk_lines)
 
 
 class DerivationEngine:
-	"""Busca una derivación (izquierda o derecha) hasta llegar al objetivo."""
+    def __init__(self, grammar: Grammar):
+        self.g = grammar
+        nltk_format = self.g.get_nltk_string()
+        self.nltk_grammar = CFG.fromstring(nltk_format)
+        self.parser = ChartParser(self.nltk_grammar)
 
-	def __init__(self, grammar: Grammar) -> None:
-		self.g = grammar
+    @staticmethod
+    def _get_leftmost_productions(tree: Tree) -> List[Production]:
+        """Extrae el orden de producciones simulando derivación por la izquierda."""
+        return tree.productions()
 
-	def derive(self, target: List[str], left: bool, max_steps: int) -> DerivationResult:
-		"""Intenta derivar `target` en <= `max_steps` expansiones."""
-		# Validación temprana: evita explorar si el objetivo contiene tokens que
-		# la gramática nunca podría producir (p.ej. '=' si no está en reglas).
-		id_matches_numbers = ("num" not in self.g.terminals) and ("number" not in self.g.terminals)
-		wildcards = {"id", "identifier", "number", "num"} & self.g.terminals
-		unsupported: List[str] = []
-		for tok in target:
-			if tok in self.g.terminals:
-				continue
-			if any(wildcard_matches(w, tok, id_matches_numbers=id_matches_numbers) for w in wildcards):
-				continue
-			unsupported.append(tok)
-		if unsupported:
-			uniq = ", ".join(sorted(set(unsupported)))
-			raise ValueError(
-				"La expresion objetivo tiene tokens que tu gramatica no produce: "
-				f"{uniq}. Agrega esos terminales a la gramatica (por ejemplo '=')."
-			)
+    def _get_rightmost_productions(self, tree: Tree) -> List[Production]:
+        """Extrae el orden de producciones simulando derivación por la derecha."""
+        prods = [tree.productions()[0]]
+        for child in reversed(tree):
+            if isinstance(child, Tree):
+                prods.extend(self._get_rightmost_productions(child))
+        return prods
 
-		start = (self.g.start_symbol,)
-		target_t = tuple(target)
+    def derive(self, target: List[str], left: bool) -> DerivationResult:
+        mapped_target = []
+        for t in target:
+            if re.fullmatch(r"\d+", t):
+                mapped_target.append("num")
+            elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", t) and t not in self.g.nonterminals and t not in {"id", "num"}:
+                mapped_target.append("id")
+            else:
+                mapped_target.append(t)
 
-		for depth in range(0, max_steps + 1):
-			seen: set[Tuple[Tuple[str, ...], int]] = set()
-			res = self._dfs(start, target_t, left, depth, [], seen)
-			if res is not None:
-				return DerivationResult(start=start, steps=res)
+        trees = list(self.parser.parse(mapped_target))
+        if not trees:
+            raise ValueError("NLTK ChartParser no encontro una derivacion valida para esta expresion.")
 
-		side = "izquierda" if left else "derecha"
-		raise ValueError(f"No se encontro derivacion por {side} en <= {max_steps} pasos")
+        best_tree = trees[0]
 
-	def _dfs(
-		self,
-		current: Tuple[str, ...],
-		target: Tuple[str, ...],
-		left: bool,
-		remaining: int,
-		steps: List[DerivationStep],
-		seen: set[Tuple[Tuple[str, ...], int]],
-	) -> Optional[List[DerivationStep]]:
-		key = (current, remaining)
-		if key in seen:
-			return None
-		seen.add(key)
+        # Extraemos las reglas genéricas (con 'num', 'id') ANTES de modificar el árbol
+        if left:
+            generic_prods = self._get_leftmost_productions(best_tree)
+        else:
+            generic_prods = self._get_rightmost_productions(best_tree)
 
-		if self._all_terminals(current):
-			return steps if self._matches(current, target) else None
-		if remaining == 0:
-			return None
-		if not self._promising(current, target):
-			return None
+        # Inyectamos los lexemas reales en las hojas
+        leaf_positions = best_tree.treepositions('leaves')
+        target_idx = 0
+        for pos in leaf_positions:
+            if best_tree[pos] != "''" and target_idx < len(target):
+                best_tree[pos] = f"'{target[target_idx]}'"
+                target_idx += 1
 
-		nonterm_idxs = [i for i, s in enumerate(current) if self.g.is_nonterminal(s)]
-		if not nonterm_idxs:
-			return None
-		idx = nonterm_idxs[0] if left else nonterm_idxs[-1]
-		A = current[idx]
-		for prod in self.g.rules.get(A, []):
-			next_form = current[:idx] + prod + current[idx + 1 :]
-			step = DerivationStep(nonterminal=A, production=prod, index=idx, form=next_form)
-			out = self._dfs(next_form, target, left, remaining - 1, steps + [step], seen)
-			if out is not None:
-				return out
-		return None
+        # Extraemos las reglas literales después de modificar el árbol para armar la cadena visual
+        if left:
+            literal_prods = self._get_leftmost_productions(best_tree)
+        else:
+            literal_prods = self._get_rightmost_productions(best_tree)
 
-	def _all_terminals(self, symbols: Tuple[str, ...]) -> bool:
-		return all(not self.g.is_nonterminal(s) for s in symbols)
+        current_form = [self.g.start_symbol]
+        steps = []
 
-	def _term_matches(self, grammar_sym: str, target_tok: str) -> bool:
-		if grammar_sym == target_tok:
-			return True
-		# Compatibilidad: si la gramática no distingue números (`num`/`number`),
-		# tratamos números como `id`.
-		id_matches_numbers = ("num" not in self.g.terminals) and ("number" not in self.g.terminals)
-		return wildcard_matches(grammar_sym, target_tok, id_matches_numbers=id_matches_numbers)
+        # Recorremos ambas listas al mismo tiempo
+        for gen_prod, lit_prod in zip(generic_prods, literal_prods):
+            lhs = str(lit_prod.lhs())
 
-	def _matches(self, form: Tuple[str, ...], target: Tuple[str, ...]) -> bool:
-		if len(form) != len(target):
-			return False
-		for a, b in zip(form, target):
-			if self.g.is_nonterminal(a):
-				return False
-			if not self._term_matches(a, b):
-				return False
-		return True
+            # Formato literal para la cadena (ej: 29)
+            lit_rhs = [str(sym).strip("'") for sym in lit_prod.rhs()]
+            if lit_rhs == ['']: lit_rhs = ['ε']
 
-	def _promising(self, current: Tuple[str, ...], target: Tuple[str, ...]) -> bool:
-		"""Poda ligera para reducir explosión combinatoria."""
-		if sum(1 for s in current if not self.g.is_nonterminal(s)) > len(target):
-			return False
+            # Formato genérico para la regla (ej: num)
+            gen_rhs = [str(sym).strip("'") for sym in gen_prod.rhs()]
+            if gen_rhs == ['']: gen_rhs = ['ε']
 
-		first_nt = next((i for i, s in enumerate(current) if self.g.is_nonterminal(s)), None)
-		if first_nt is not None:
-			prefix = [s for s in current[:first_nt] if not self.g.is_nonterminal(s)]
-			if len(prefix) > len(target):
-				return False
-			for a, b in zip(prefix, target[: len(prefix)]):
-				if not self._term_matches(a, b):
-					return False
+            if left:
+                idx = current_form.index(lhs)
+            else:
+                idx = len(current_form) - 1 - current_form[::-1].index(lhs)
 
-		return len(current) <= len(target) + 20
+            next_form = current_form[:idx] + (lit_rhs if lit_rhs != ['ε'] else []) + current_form[idx + 1:]
+
+            steps.append(DerivationStep(
+                nonterminal=lhs,
+                production=tuple(gen_rhs),  # Guarda la regla matemática genérica
+                index=idx,
+                form=tuple(next_form)  # Guarda la expansión visual con números reales
+            ))
+            current_form = next_form
+
+        return DerivationResult(
+            start=(self.g.start_symbol,),
+            steps=steps,
+            nltk_tree=best_tree
+        )
 
 
 class TreeBuilder:
-	"""Construye el árbol de derivación y un AST simplificado a partir de la derivación."""
+    def __init__(self, grammar: Grammar):
+        self.g = grammar
 
-	def __init__(self, grammar: Grammar) -> None:
-		self.g = grammar
+    def build_derivation_tree(self, result: DerivationResult) -> Node:
+        """El Adaptador: Convierte árboles NLTK a nuestra estructura Node para PyQt6."""
+        if not result.nltk_tree:
+            return Node(self.g.start_symbol)
 
-	def build_derivation_tree(self, result: DerivationResult) -> Node:
-		root = Node(self.g.start_symbol)
-		form_nodes: List[Node] = [root]
-		for step in result.steps:
-			if step.index < 0 or step.index >= len(form_nodes):
-				raise ValueError("Inconsistencia al construir el arbol")
-			node = form_nodes[step.index]
-			node.children = [Node(sym) for sym in step.production] or [Node("ε")]
-			form_nodes = form_nodes[: step.index] + node.children + form_nodes[step.index + 1 :]
-		return root
+        def translate(nltk_obj) -> Node:
+            if isinstance(nltk_obj, str):
+                clean_str = nltk_obj.strip("'")
+                return Node(clean_str if clean_str else "ε")
 
-	def apply_lexemes(self, root: Node, target_tokens: List[str]) -> None:
-		"""Reemplaza hojas id/identifier/number por lexemas reales."""
-		i = 0
-		id_matches_numbers = ("num" not in self.g.terminals) and ("number" not in self.g.terminals)
+            node = Node(str(nltk_obj.label()))
+            for child in nltk_obj:
+                node.children.append(translate(child))
+            return node
 
-		def walk(n: Node) -> None:
-			nonlocal i
-			if not n.children:
-				if n.symbol in {"ε", "epsilon", "lambda"}:
-					return
-				if n.symbol in {"id", "identifier", "number", "num"}:
-					pred = (
-						is_identifier
-						if n.symbol in {"identifier", "id"} and not (n.symbol == "id" and id_matches_numbers)
-						else is_number
-						if n.symbol in {"number", "num"}
-						else is_ident_or_number
-					)
-					while i < len(target_tokens) and not pred(target_tokens[i]):
-						i += 1
-					if i < len(target_tokens):
-						n.symbol = target_tokens[i]
-						i += 1
-					return
-				# Terminal literal: consumir hasta alinear.
-				while i < len(target_tokens) and target_tokens[i] != n.symbol:
-					i += 1
-				if i < len(target_tokens):
-					i += 1
-				return
-			for c in n.children:
-				walk(c)
+        return translate(result.nltk_tree)
 
-		walk(root)
+    @staticmethod
+    def apply_lexemes(root: Node, target_tokens: List[str]) -> None:
+        """Restaura los valores reales (ej: 10) en los nodos terminales del árbol."""
+        idx = 0
 
-	def build_ast(self, derivation_root: Node) -> Node:
-		"""AST genérico: elimina no-terminales y pliega binarios <izq op der>."""
-		punct = {"(", ")", "[", "]", "{", "}", ",", ";"}
-		bin_ops = {"+", "-", "*", "/"}
+        def walk(n: Node):
+            nonlocal idx
+            if not n.children:
+                if n.symbol not in {"ε", "epsilon", "lambda"} and idx < len(target_tokens):
+                    n.symbol = target_tokens[idx]
+                    idx += 1
+                return
+            for c in n.children:
+                walk(c)
 
-		def to_ast(n: Node) -> Optional[Node]:
-			if n.symbol in {"ε", "epsilon", "lambda"}:
-				return None
-			if not n.children:
-				return None if n.symbol in punct else Node(n.symbol)
+        walk(root)
 
-			kids: List[Node] = []
-			for c in n.children:
-				k = to_ast(c)
-				if k is not None:
-					kids.append(k)
+    def build_ast(self, derivation_root: Node) -> Node:
+        """AST genérico: elimina no-terminales y pliega binarios."""
+        punct = {"(", ")", "[", "]", "{", "}", ",", ";"}
+        bin_ops = {"+", "-", "*", "/"}
 
-			if self.g.is_nonterminal(n.symbol):
-				if len(kids) == 1:
-					return kids[0]
-				if len(kids) == 3 and not kids[1].children and kids[1].symbol in bin_ops:
-					op = Node(kids[1].symbol, [kids[0], kids[2]])
-					return op
-				return Node(n.symbol, kids)
+        def to_ast(n: Node) -> Optional[Node]:
+            if n.symbol in {"ε", "epsilon", "lambda", "''"}:
+                return None
+            if not n.children:
+                return None if n.symbol in punct else Node(n.symbol)
 
-			return Node(n.symbol, kids)
+            kids = []
+            for c in n.children:
+                k = to_ast(c)
+                if k is not None:
+                    kids.append(k)
 
-		out = to_ast(derivation_root)
-		return out if out is not None else Node("AST")
+            if self.g.is_nonterminal(n.symbol):
+                if len(kids) == 1:
+                    return kids[0]
+                if len(kids) == 3 and not kids[1].children and kids[1].symbol in bin_ops:
+                    return Node(kids[1].symbol, [kids[0], kids[2]])
+                return Node(n.symbol, kids)
+
+            return Node(n.symbol, kids)
+
+        out = to_ast(derivation_root)
+        return out if out is not None else Node("AST")
